@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <new>
+#include <utility>
 
 namespace {
 constexpr AccordSubscriptionId kInvalidSubscriptionId = 0;
@@ -28,6 +29,13 @@ uint32_t nextNonZero(uint32_t value) {
 	if (value == 0) {
 		value++;
 	}
+	return value;
+}
+
+uint32_t clampDeferMs(uint32_t requestedMs, const AccordConfig &config) {
+	uint32_t value = requestedMs == 0 ? config.defaultDeferMs : requestedMs;
+	value = std::max(value, config.minDeferMs);
+	value = std::min(value, config.maxDeferMs);
 	return value;
 }
 } // namespace
@@ -88,6 +96,10 @@ struct AccordImpl {
 	bool initialized = false;
 	AccordState state = AccordState::Idle;
 	AccordRequestInfo info{};
+	bool lastInfoValid = false;
+	AccordRequestInfo lastInfo{};
+	AccordState lastFinishState = AccordState::Idle;
+	AccordError lastError = AccordError::None;
 	uint32_t requestId = 0;
 	AccordSubscriptionId nextSubscriptionId = 1;
 	uint32_t retryDueAtMs = 0;
@@ -162,6 +174,26 @@ AccordResult AccordResult::success(const char *message) {
 
 AccordResult AccordResult::failure(AccordError error, const char *message) {
 	AccordResult result;
+	result.ok = false;
+	result.error = error;
+	result.message = message;
+	return result;
+}
+
+AccordSubscriptionResult AccordSubscriptionResult::success(AccordSubscription subscription) {
+	AccordSubscriptionResult result;
+	result.ok = true;
+	result.error = AccordError::None;
+	result.message = "ok";
+	result.subscription = std::move(subscription);
+	return result;
+}
+
+AccordSubscriptionResult AccordSubscriptionResult::failure(
+    AccordError error,
+    const char *message
+) {
+	AccordSubscriptionResult result;
 	result.ok = false;
 	result.error = error;
 	result.message = message;
@@ -304,6 +336,10 @@ static void finishRequestLocked(AccordImpl &impl, AccordFinishEvent &event) {
 	} else if (kind == AccordFinishKind::Cancelled) {
 		impl.state = AccordState::Cancelled;
 	}
+	impl.lastInfo = impl.info;
+	impl.lastInfoValid = true;
+	impl.lastFinishState = impl.state;
+	impl.lastError = event.error;
 	event = impl.makeEventLocked(kind, event.error);
 	impl.requestId = nextNonZero(impl.requestId);
 	impl.clearRequestLocked();
@@ -321,7 +357,8 @@ AccordResult Accord::init(const AccordConfig &config) {
 		return AccordResult::failure(AccordError::OutOfMemory, "accord allocation failed");
 	}
 	if (config.maxSubscribers == 0 || config.maxSubscribers > UINT16_MAX ||
-	    config.maxDeferMs == 0) {
+	    config.minDeferMs == 0 || config.defaultDeferMs == 0 || config.maxDeferMs == 0 ||
+	    config.minDeferMs > config.defaultDeferMs || config.defaultDeferMs > config.maxDeferMs) {
 		return AccordResult::failure(AccordError::InvalidConfig, "accord config is invalid");
 	}
 
@@ -347,6 +384,10 @@ AccordResult Accord::init(const AccordConfig &config) {
 	_impl->initialized = true;
 	_impl->state = AccordState::Idle;
 	_impl->info = AccordRequestInfo();
+	_impl->lastInfoValid = false;
+	_impl->lastInfo = AccordRequestInfo();
+	_impl->lastFinishState = AccordState::Idle;
+	_impl->lastError = AccordError::None;
 	_impl->retryDueAtMs = 0;
 	_impl->retryAfterMs = 0;
 	_impl->requestId = nextNonZero(_impl->requestId);
@@ -369,10 +410,13 @@ AccordResult Accord::deinit() {
 			return AccordResult::success("accord is not initialized");
 		}
 		if (isActiveState(_impl->state)) {
-			event = _impl->makeEventLocked(AccordFinishKind::Cancelled, AccordError::Cancelled);
+			event.kind = AccordFinishKind::Cancelled;
+			event.error = AccordError::Cancelled;
+			finishRequestLocked(*_impl, event);
+		} else {
+			_impl->requestId = nextNonZero(_impl->requestId);
+			_impl->clearRequestLocked();
 		}
-		_impl->requestId = nextNonZero(_impl->requestId);
-		_impl->clearRequestLocked();
 		_impl->clearSubscribersLocked();
 		_impl->readyCallback = nullptr;
 		_impl->rejectedCallback = nullptr;
@@ -500,17 +544,32 @@ AccordResult Accord::force(const char *label) {
 	return AccordResult::success("accord force request ready");
 }
 
-AccordSubscription Accord::onRequest(AccordRequestCallback callback) {
+AccordSubscriptionResult Accord::subscribe(AccordRequestCallback callback) {
 	if (!_impl || !callback) {
-		return AccordSubscription();
+		return AccordSubscriptionResult::failure(
+		    AccordError::InvalidArgument,
+		    "accord request callback is required"
+		);
 	}
 
 	AccordLock lock(_impl->mutex);
-	if (!lock || !_impl->initialized || !_impl->subscribers) {
-		return AccordSubscription();
+	if (!lock) {
+		return AccordSubscriptionResult::failure(
+		    AccordError::InternalError,
+		    "accord mutex unavailable"
+		);
+	}
+	if (!_impl->initialized || !_impl->subscribers) {
+		return AccordSubscriptionResult::failure(
+		    AccordError::NotInitialized,
+		    "accord is not initialized"
+		);
 	}
 	if (_impl->activeSubscriberCount >= _impl->subscriberCapacity) {
-		return AccordSubscription();
+		return AccordSubscriptionResult::failure(
+		    AccordError::SubscriberLimitReached,
+		    "accord subscriber limit reached"
+		);
 	}
 
 	AccordSubscriptionRecord *slot = nullptr;
@@ -521,19 +580,33 @@ AccordSubscription Accord::onRequest(AccordRequestCallback callback) {
 		}
 	}
 	if (slot == nullptr) {
-		return AccordSubscription();
+		return AccordSubscriptionResult::failure(
+		    AccordError::SubscriberLimitReached,
+		    "accord subscriber limit reached"
+		);
 	}
 
 	AccordSubscriptionId id = kInvalidSubscriptionId;
 	if (!_impl->allocateSubscriptionIdLocked(id)) {
-		return AccordSubscription();
+		return AccordSubscriptionResult::failure(
+		    AccordError::InternalError,
+		    "accord subscription id allocation failed"
+		);
 	}
 
 	slot->id = id;
 	slot->active = true;
 	slot->callback = callback;
 	_impl->activeSubscriberCount++;
-	return AccordSubscription(this, id);
+	return AccordSubscriptionResult::success(AccordSubscription(this, id));
+}
+
+AccordSubscription Accord::onRequest(AccordRequestCallback callback) {
+	AccordSubscriptionResult result = subscribe(callback);
+	if (!result) {
+		return AccordSubscription();
+	}
+	return std::move(result.subscription);
 }
 
 void Accord::onReady(AccordReadyCallback callback) {
@@ -654,6 +727,40 @@ bool Accord::getRequestInfo(AccordRequestInfo &info) const {
 	}
 	info = _impl->info;
 	return true;
+}
+
+bool Accord::getLastRequestInfo(AccordRequestInfo &info) const {
+	if (!_impl) {
+		return false;
+	}
+	AccordLock lock(_impl->mutex);
+	if (!lock || !_impl->lastInfoValid) {
+		return false;
+	}
+	info = _impl->lastInfo;
+	return true;
+}
+
+AccordError Accord::getLastError() const {
+	if (!_impl) {
+		return AccordError::InternalError;
+	}
+	AccordLock lock(_impl->mutex);
+	if (!lock || !_impl->lastInfoValid) {
+		return AccordError::None;
+	}
+	return _impl->lastError;
+}
+
+AccordState Accord::getLastFinishState() const {
+	if (!_impl) {
+		return AccordState::Idle;
+	}
+	AccordLock lock(_impl->mutex);
+	if (!lock || !_impl->lastInfoValid) {
+		return AccordState::Idle;
+	}
+	return _impl->lastFinishState;
 }
 
 const char *Accord::errorToString(AccordError error) const {
@@ -826,15 +933,36 @@ AccordResult Accord::processVotes() {
 	}
 
 	for (size_t i = 0; i < snapshotCount; ++i) {
+		{
+			AccordLock lock(impl.mutex);
+			if (!lock) {
+				return AccordResult::failure(AccordError::InternalError, "accord mutex unavailable");
+			}
+			if (!impl.initialized || impl.requestId != requestId || !isActiveState(impl.state)) {
+				return AccordResult::failure(
+				    AccordError::Cancelled,
+				    "accord request is no longer active"
+				);
+			}
+			if (impl.findSubscriberLocked(snapshots[i].id) == nullptr) {
+				continue;
+			}
+		}
+
 		AccordRequest request(label, retryCount, requestId);
 		snapshots[i].callback(request);
 
 		AccordFinishEvent event;
 		{
 			AccordLock lock(impl.mutex);
-			if (!lock || !impl.initialized || impl.requestId != requestId ||
-			    !isActiveState(impl.state)) {
-				continue;
+			if (!lock) {
+				return AccordResult::failure(AccordError::InternalError, "accord mutex unavailable");
+			}
+			if (!impl.initialized || impl.requestId != requestId || !isActiveState(impl.state)) {
+				return AccordResult::failure(
+				    AccordError::Cancelled,
+				    "accord request is no longer active"
+				);
 			}
 
 			if (impl.findSubscriberLocked(snapshots[i].id) == nullptr) {
@@ -854,7 +982,7 @@ AccordResult Accord::processVotes() {
 			} else if (request.decision() == AccordDecision::Defer) {
 				impl.info.deferCount++;
 				impl.retryAfterMs =
-				    std::max(impl.retryAfterMs, std::min(request.retryAfterMs(), impl.config.maxDeferMs));
+				    std::max(impl.retryAfterMs, clampDeferMs(request.retryAfterMs(), impl.config));
 			}
 		}
 		if (event.kind != AccordFinishKind::None) {

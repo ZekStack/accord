@@ -51,6 +51,8 @@ enum class AccordDecision : uint8_t {
 struct AccordConfig {
 	uint32_t defaultTimeoutMs = 30000;
 	uint8_t maxRetries = 10;
+	uint32_t minDeferMs = 10;
+	uint32_t defaultDeferMs = 1000;
 	uint32_t maxDeferMs = 60000;
 	bool allowWithoutSubscribers = true;
 	size_t maxSubscribers = 16;
@@ -148,6 +150,20 @@ class AccordSubscription {
 	AccordSubscriptionId _id = 0;
 };
 
+struct AccordSubscriptionResult {
+	bool ok = false;
+	AccordError error = AccordError::InternalError;
+	const char *message = "internal error";
+	AccordSubscription subscription;
+
+	explicit operator bool() const {
+		return ok;
+	}
+
+	static AccordSubscriptionResult success(AccordSubscription subscription);
+	static AccordSubscriptionResult failure(AccordError error, const char *message);
+};
+
 class Accord {
   public:
 	Accord();
@@ -163,6 +179,7 @@ class Accord {
 	AccordResult cancel();
 	AccordResult force(const char *label);
 
+	AccordSubscriptionResult subscribe(AccordRequestCallback callback);
 	AccordSubscription onRequest(AccordRequestCallback callback);
 
 	void onReady(AccordReadyCallback callback);
@@ -177,6 +194,9 @@ class Accord {
 	bool isRequestActive() const;
 	AccordState getState() const;
 	bool getRequestInfo(AccordRequestInfo &info) const;
+	bool getLastRequestInfo(AccordRequestInfo &info) const;
+	AccordError getLastError() const;
+	AccordState getLastFinishState() const;
 
 	const char *errorToString(AccordError error) const;
 	const char *stateToString(AccordState state) const;

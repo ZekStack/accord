@@ -12,6 +12,7 @@ public:
 	AccordResult cancel();
 	AccordResult force(const char *label);
 
+	AccordSubscriptionResult subscribe(AccordRequestCallback callback);
 	AccordSubscription onRequest(AccordRequestCallback callback);
 
 	void onReady(AccordReadyCallback callback);
@@ -26,6 +27,9 @@ public:
 	bool isRequestActive() const;
 	AccordState getState() const;
 	bool getRequestInfo(AccordRequestInfo &info) const;
+	bool getLastRequestInfo(AccordRequestInfo &info) const;
+	AccordError getLastError() const;
+	AccordState getLastFinishState() const;
 
 	const char *errorToString(AccordError error) const;
 	const char *stateToString(AccordState state) const;
@@ -46,6 +50,21 @@ struct AccordResult {
 ```
 
 Use `if (!result)` for error handling.
+
+## Subscription result
+
+```cpp
+struct AccordSubscriptionResult {
+	bool ok;
+	AccordError error;
+	const char *message;
+	AccordSubscription subscription;
+
+	explicit operator bool() const;
+};
+```
+
+Use `subscribe()` when code needs to know why registration failed. `onRequest()` remains the convenience API and returns an empty `AccordSubscription` on failure.
 
 ## Request voting
 
@@ -74,6 +93,8 @@ subscription.unsubscribe();
 
 The handle does not automatically unsubscribe from its destructor, so simple calls such as `accord.onRequest(...)` remain valid.
 
+Move assignment releases the previous handle without unsubscribing it. Call `unsubscribe()` before overwriting a live handle if the old subscriber should be removed.
+
 ## Request info
 
 ```cpp
@@ -92,6 +113,8 @@ struct AccordRequestInfo {
 `rejectMessage` stores the first rejection message pointer. It may be `nullptr`.
 
 `getRequestInfo(info)` returns `true` only while a request is active or deferred.
+
+After completion, `getLastRequestInfo(info)` returns the last finished request if one exists. `getLastFinishState()` reports `Ready`, `Rejected`, `Failed`, or `Cancelled`, and `getLastError()` reports the final error code.
 
 ## Errors
 
@@ -115,6 +138,6 @@ struct AccordRequestInfo {
 
 ## Callback reentrancy
 
-Accord snapshots active subscribers, releases the mutex, invokes callbacks, then re-locks and merges votes only if the request id is still active. Votes from cancelled, completed, or deinitialized requests are ignored.
+Accord snapshots active subscribers, releases the mutex, checks that the request is still active before each callback, invokes the callback, then re-locks and merges votes only if the request id is still active. Callbacks from cancelled, completed, or deinitialized requests are not invoked after the request stops.
 
 Completion callbacks are also invoked outside the mutex.

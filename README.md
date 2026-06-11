@@ -12,7 +12,7 @@ Accord helps you safely coordinate `ESP.restart()` in Arduino ESP32 projects. It
 
 * **Coordinated reboot** - modules vote before user code calls `ESP.restart()`.
 * **Small API** - request, allow, reject, defer, cancel, and strict force flows.
-* **ESP32-friendly** - fixed subscriber storage and no exceptions.
+* **ESP32-friendly** - fixed subscriber slots and no exceptions.
 * **Thread-safe internals** - public methods are guarded by a FreeRTOS recursive mutex.
 * **Production-minded** - result-based errors, retry limits, timeout handling, and clear callback rules.
 
@@ -90,6 +90,8 @@ void loop() {
 * Subscriber callbacks and lifecycle callbacks are invoked outside the internal mutex.
 * Each `AccordRequest` accepts one decision. If a subscriber votes more than once, the first vote wins.
 * Subscription handles unsubscribe only when `unsubscribe()` is called explicitly.
+* Assigning over a live subscription handle releases that handle without unsubscribing the old subscriber.
+* Subscriber slots are fixed after `init()`, but callback storage uses `std::function`; larger captures may allocate.
 * Reject messages are stored as `const char*`; prefer string literals or other stable storage.
 
 ## Examples
@@ -158,6 +160,8 @@ For the full API, see [`docs/api.md`](docs/api.md).
 AccordConfig config;
 config.defaultTimeoutMs = 30000;
 config.maxRetries = 10;
+config.minDeferMs = 10;
+config.defaultDeferMs = 1000;
 config.maxDeferMs = 60000;
 config.allowWithoutSubscribers = true;
 config.maxSubscribers = 16;
