@@ -27,3 +27,7 @@ Stores the handle returned from `onRequest()` and explicitly unsubscribes it.
 ## BindableCallbacks
 
 Uses a class with private methods bound through lambdas. Accord callbacks are `std::function` based, so lambdas, captures, and `std::bind` style callbacks are supported.
+
+## SelfTest
+
+Manual ESP32 serial self-test. It prints PASS/FAIL results for allow, reject, defer retry, cancel during callback, unsubscribe during callback, no-subscriber behavior, and timeout behavior. It does not reboot the device.

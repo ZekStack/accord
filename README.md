@@ -76,6 +76,8 @@ void setup() {
 
 void loop() {
 	accord.loop();
+
+	// Your normal application loop work here.
 	delay(10);
 }
 ```
@@ -86,6 +88,9 @@ void loop() {
 > Accord does not reboot by itself. `onReady()` is a notification; user code must call `ESP.restart()` when appropriate.
 
 * After `onReady()` returns, the request is finished and Accord returns to idle.
+* A successful `request()` means Accord accepted and processed the request. It does not mean reboot is approved. Call `ESP.restart()` only from `onReady()` or after checking `getLastFinishState() == AccordState::Ready`.
+* `getState()` reports the current active state and usually returns `Idle`, `CollectingVotes`, or `Deferred`. Completed outcomes are available through `getLastFinishState()`.
+* A rejected request is a normal vote outcome, not an error. For rejected requests, `getLastError()` returns `None`; use `getLastRequestInfo(info).rejectMessage` for the rejection reason.
 * `force()` skips voting, but only when Accord is idle. It does not interrupt an active request.
 * Subscriber callbacks and lifecycle callbacks are invoked outside the internal mutex.
 * Each `AccordRequest` accepts one decision. If a subscriber votes more than once, the first vote wins.
@@ -105,6 +110,7 @@ void loop() {
 | `Force` | Use strict force while Accord is idle. |
 | `SubscriptionHandle` | Explicitly unsubscribe a request subscriber. |
 | `BindableCallbacks` | Bind private class methods through lambdas. |
+| `SelfTest` | Manual serial self-test covering common request outcomes on ESP32. |
 
 Start with:
 
@@ -183,6 +189,8 @@ if (!result) {
 	return;
 }
 ```
+
+A successful `request()` result only means Accord accepted and processed the request. Wait for `onReady()` or check `getLastFinishState() == AccordState::Ready` before rebooting.
 
 For all error codes, see [`docs/api.md`](docs/api.md).
 

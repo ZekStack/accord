@@ -51,6 +51,8 @@ struct AccordResult {
 
 Use `if (!result)` for error handling.
 
+For `request(label)`, a successful result means Accord accepted and processed the request. It does not mean reboot is approved. Use `onReady()` or check `getLastFinishState() == AccordState::Ready` before user code calls `ESP.restart()`.
+
 ## Subscription result
 
 ```cpp
@@ -116,6 +118,10 @@ struct AccordRequestInfo {
 
 After completion, `getLastRequestInfo(info)` returns the last finished request if one exists. `getLastFinishState()` reports `Ready`, `Rejected`, `Failed`, or `Cancelled`, and `getLastError()` reports the final error code.
 
+`getState()` reports the current active state and usually returns `Idle`, `CollectingVotes`, or `Deferred`. Completed outcomes are available through `getLastFinishState()`.
+
+`Rejected` is a normal vote outcome, not an error. For rejected requests, `getLastError()` returns `AccordError::None`; use `getLastRequestInfo(info).rejectMessage` for the rejection reason.
+
 ## Errors
 
 | Error | Meaning |
@@ -141,3 +147,7 @@ After completion, `getLastRequestInfo(info)` returns the last finished request i
 Accord snapshots active subscribers, releases the mutex, checks that the request is still active before each callback, invokes the callback, then re-locks and merges votes only if the request id is still active. Callbacks from cancelled, completed, or deinitialized requests are not invoked after the request stops.
 
 Completion callbacks are also invoked outside the mutex.
+
+## Host logic tests
+
+The host logic tests compile Accord with Arduino and FreeRTOS stubs. They validate request control flow, vote merging, and public diagnostics, but they do not model real ESP32 mutex contention, deletion timing, or hardware scheduling behavior.
