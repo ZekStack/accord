@@ -12,9 +12,10 @@ Accord helps you safely coordinate `ESP.restart()` in Arduino ESP32 projects. It
 
 * **Coordinated reboot** - modules vote before user code calls `ESP.restart()`.
 * **Small API** - request, allow, reject, defer, cancel, and strict force flows.
-* **ESP32-friendly** - fixed subscriber slots and no exceptions.
-* **Thread-safe internals** - public methods are guarded by a FreeRTOS recursive mutex.
-* **Production-minded** - result-based errors, retry limits, timeout handling, and clear callback rules.
+* **ESP32-friendly** - fixed subscriber and vote-snapshot storage after `init()`.
+* **Thread-safe internals** - state is guarded by a FreeRTOS recursive mutex.
+* **Callback-safe teardown** - external cancel, unsubscribe, and deinit operations prevent later callback admission and synchronize with in-flight callbacks.
+* **Production-minded** - result-based errors, retry limits, timeout handling, and explicit callback rules.
 
 ## Install
 
@@ -87,17 +88,33 @@ void loop() {
 > [!IMPORTANT]
 > Accord does not reboot by itself. `onReady()` is a notification; user code must call `ESP.restart()` when appropriate.
 
-* After `onReady()` returns, the request is finished and Accord returns to idle.
 * A successful `request()` means Accord accepted and processed the request. It does not mean reboot is approved. Call `ESP.restart()` only from `onReady()` or after checking `getLastFinishState() == AccordState::Ready`.
-* `getState()` reports the current active state and usually returns `Idle`, `CollectingVotes`, or `Deferred`. Completed outcomes are available through `getLastFinishState()`.
+* `getState()` reports the live state. Terminal states remain visible while their lifecycle callback executes, then Accord returns to `Idle`.
+* Completed outcomes are retained through `getLastRequestInfo()`, `getLastError()`, and `getLastFinishState()`.
 * A rejected request is a normal vote outcome, not an error. For rejected requests, `getLastError()` returns `None`; use `getLastRequestInfo(info).rejectMessage` for the rejection reason.
 * `force()` skips voting, but only when Accord is idle. It does not interrupt an active request.
-* Subscriber callbacks and lifecycle callbacks are invoked outside the internal mutex.
+* Subscriber callbacks and lifecycle callbacks run without the state mutex held.
+* Accord serializes user callbacks per instance through a separate recursive callback gate.
 * Each `AccordRequest` accepts one decision. If a subscriber votes more than once, the first vote wins.
 * Subscription handles unsubscribe only when `unsubscribe()` is called explicitly.
 * Assigning over a live subscription handle releases that handle without unsubscribing the old subscriber.
-* Subscriber slots are fixed after `init()`, but callback storage uses `std::function`; larger captures may allocate.
-* Reject messages are stored as `const char*`; prefer string literals or other stable storage.
+* Handles created before `deinit()` are generation-bound and cannot remove subscribers created after reinitialization.
+* Callback storage uses `std::function`; registering callbacks with larger captures may allocate.
+* Labels and reject messages are borrowed `const char*` pointers. Their storage must remain valid until the next request completes, Accord is reinitialized, or Accord is destroyed.
+
+## Cross-task behavior
+
+External operations use the following guarantees:
+
+* `cancel()` invalidates the request before waiting for any currently executing subscriber callback. No later subscriber callback from that request can begin after cancellation is observed.
+* `unsubscribe()` marks the subscriber inactive before waiting for an in-flight invocation to exit. When it returns, that subscription cannot begin another callback.
+* `deinit()` blocks new Accord work, waits for in-flight callbacks, then clears callback and subscriber storage before returning.
+
+Calling these operations from inside an Accord callback is supported:
+
+* self-unsubscribe marks the subscription inactive and defers storage cleanup until callback exit;
+* self-cancel invalidates the request and discards the current callback's vote;
+* self-deinit returns successfully and completes cleanup after the outermost Accord callback exits.
 
 ## Examples
 
@@ -157,8 +174,8 @@ For the full API, see [`docs/api.md`](docs/api.md).
 | Filesystem | none |
 | PSRAM | not used |
 | Dependencies | none |
-| Exceptions | Not used |
-| Status | Early-stage `0.0.1` |
+| Exceptions | Not used by Accord |
+| Status | Early-stage `0.1.0` |
 
 ## Configuration
 

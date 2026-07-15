@@ -1,19 +1,30 @@
 #pragma once
 
 #include "FreeRTOS.h"
+#include <new>
 
-using SemaphoreHandle_t = void *;
+#include <mutex>
+
+using SemaphoreHandle_t = std::recursive_mutex *;
 
 inline SemaphoreHandle_t xSemaphoreCreateRecursiveMutex() {
-	return reinterpret_cast<void *>(1);
+	return new (std::nothrow) std::recursive_mutex();
 }
 
-inline void vSemaphoreDelete(SemaphoreHandle_t) {
+inline void vSemaphoreDelete(SemaphoreHandle_t handle) {
+	delete handle;
 }
 
-inline int xSemaphoreTakeRecursive(SemaphoreHandle_t, TickType_t) {
+inline int xSemaphoreTakeRecursive(SemaphoreHandle_t handle, TickType_t) {
+	if (handle == nullptr) {
+		return pdFALSE;
+	}
+	handle->lock();
 	return pdTRUE;
 }
 
-inline void xSemaphoreGiveRecursive(SemaphoreHandle_t) {
+inline void xSemaphoreGiveRecursive(SemaphoreHandle_t handle) {
+	if (handle != nullptr) {
+		handle->unlock();
+	}
 }

@@ -1,9 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
-extern uint32_t accordTestMillis;
+extern std::atomic<uint32_t> accordTestMillis;
 
 inline uint32_t millis() {
-	return accordTestMillis;
+	return accordTestMillis.load(std::memory_order_relaxed);
 }

@@ -81,6 +81,8 @@ request.defer(5000);
 
 The first decision on a request object wins. Later decisions from the same subscriber callback are ignored.
 
+A subscriber that returns without voting causes `MissingVote`, unless the subscriber was unsubscribed or the request was cancelled/deinitialized while its callback was running.
+
 ## Subscription handles
 
 `onRequest()` returns an `AccordSubscription`. Store it only when you need to unsubscribe later.
@@ -97,6 +99,10 @@ The handle does not automatically unsubscribe from its destructor, so simple cal
 
 Move assignment releases the previous handle without unsubscribing it. Call `unsubscribe()` before overwriting a live handle if the old subscriber should be removed.
 
+Handles created by Accord contain an internal initialization generation. A handle retained across `deinit()` cannot unsubscribe a subscriber created after a later `init()`.
+
+`release()` returns only the raw numeric ID. Raw IDs are valid only for the current initialization generation and should not be persisted across `deinit()`.
+
 ## Request info
 
 ```cpp
@@ -112,42 +118,82 @@ struct AccordRequestInfo {
 };
 ```
 
-`rejectMessage` stores the first rejection message pointer. It may be `nullptr`.
-
-`getRequestInfo(info)` returns `true` only while a request is active or deferred.
+`getRequestInfo(info)` returns `true` only while a request is collecting votes or deferred.
 
 After completion, `getLastRequestInfo(info)` returns the last finished request if one exists. `getLastFinishState()` reports `Ready`, `Rejected`, `Failed`, or `Cancelled`, and `getLastError()` reports the final error code.
 
-`getState()` reports the current active state and usually returns `Idle`, `CollectingVotes`, or `Deferred`. Completed outcomes are available through `getLastFinishState()`.
+`getState()` reports the live state. Terminal states remain visible while the matching lifecycle callback executes. Accord changes to `Idle` only after that callback returns.
 
 `Rejected` is a normal vote outcome, not an error. For rejected requests, `getLastError()` returns `AccordError::None`; use `getLastRequestInfo(info).rejectMessage` for the rejection reason.
+
+### Borrowed string lifetime
+
+Accord stores `label` and `rejectMessage` as borrowed `const char*` pointers. It does not copy their contents.
+
+The backing storage must remain valid until the next request completes, Accord is reinitialized, or Accord is destroyed. This requirement includes deferred retries and reads through `getLastRequestInfo()`.
+
+Prefer string literals, static storage, or application-owned buffers with a sufficiently long lifetime.
 
 ## Errors
 
 | Error | Meaning |
 | --- | --- |
 | `None` | No error. |
-| `NotInitialized` | Accord was not initialized. |
+| `NotInitialized` | Accord was not initialized or is deinitializing. |
 | `AlreadyInitialized` | `init()` was called twice. |
-| `RequestAlreadyActive` | A request is already active. |
+| `RequestAlreadyActive` | A request or terminal lifecycle callback is active. |
 | `NoSubscribers` | No subscribers and `allowWithoutSubscribers` is false. |
 | `SubscriberLimitReached` | Subscriber storage limit reached. |
-| `RequestTimeout` | The request exceeded `defaultTimeoutMs`. |
+| `RequestTimeout` | The request exceeded `defaultTimeoutMs`, including time spent in subscriber callbacks. |
 | `MaxRetriesReached` | A deferred request exceeded `maxRetries`. |
-| `MissingVote` | A subscriber returned without voting. |
+| `MissingVote` | A still-active subscriber returned without voting. |
 | `InvalidConfig` | Config values are invalid. |
 | `InvalidArgument` | A required argument was invalid. |
-| `OutOfMemory` | Allocation failed. |
+| `OutOfMemory` | Initialization storage allocation failed. |
 | `Cancelled` | Request was cancelled or became stale. |
-| `SubscriptionNotFound` | Unsubscribe target was not found. |
-| `InternalError` | Internal failure. |
+| `SubscriptionNotFound` | Unsubscribe target was not found or belonged to an earlier initialization. |
+| `InternalError` | Internal synchronization failure. |
 
-## Callback reentrancy
+## Callback and concurrency contract
 
-Accord snapshots active subscribers, releases the mutex, checks that the request is still active before each callback, invokes the callback, then re-locks and merges votes only if the request id is still active. Callbacks from cancelled, completed, or deinitialized requests are not invoked after the request stops.
+Accord uses two recursive FreeRTOS mutexes per instance:
 
-Completion callbacks are also invoked outside the mutex.
+* a state mutex protects request, subscriber, and diagnostic state;
+* a callback gate serializes user callback admission and teardown.
+
+The state mutex is not held while user callbacks execute. User callbacks may call Accord APIs reentrantly.
+
+Callbacks are serialized per Accord instance. Two subscriber or lifecycle callbacks from the same instance do not execute concurrently.
+
+### External calls
+
+* `cancel()` invalidates the request first, then synchronizes with the callback gate before delivering `onCancelled()`.
+* `unsubscribe()` marks the subscriber inactive first, then waits for an in-flight invocation before returning.
+* `deinit()` marks Accord unavailable first, waits for in-flight callbacks, delivers cancellation when needed, and clears callback/subscriber storage before returning.
+
+A callback already executing when cancellation or teardown begins may finish its user code, but its vote is discarded. No later callback from the invalidated request or removed subscriber is admitted.
+
+### Calls from inside callbacks
+
+* self-unsubscribe is supported and defers callback storage cleanup until return;
+* self-cancel is supported and invalidates the current request;
+* self-deinit is supported and defers final cleanup until the outermost Accord callback returns;
+* replacing a lifecycle callback from inside itself is supported; the replacement is installed after the current invocation.
+
+## Timeout behavior
+
+Accord checks the full request timeout:
+
+* before vote snapshot processing;
+* before each subscriber callback;
+* immediately after each subscriber callback;
+* before final vote aggregation;
+* from `loop()` while deferred.
+
+A callback that returns after the deadline cannot contribute a vote. The request finishes with `RequestTimeout`, and `onFailed()` is emitted once.
 
 ## Host logic tests
 
-The host logic tests compile Accord with Arduino and FreeRTOS stubs. They validate request control flow, vote merging, and public diagnostics, but they do not model real ESP32 mutex contention, deletion timing, or hardware scheduling behavior.
+The host tests compile Accord with Arduino and FreeRTOS stubs backed by real C++ recursive mutexes. They cover state-machine behavior, threaded deinit/unsubscribe synchronization, stale handles, callback-time timeout, lifecycle ordering, and millis wraparound.
+
+ESP32 builds in CI remain the source of truth for platform compilation and FreeRTOS integration.

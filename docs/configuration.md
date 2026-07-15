@@ -19,24 +19,36 @@ AccordResult result = accord.init(config);
 
 | Field | Default | Description |
 | --- | --- | --- |
-| `defaultTimeoutMs` | `30000` | Full active-request timeout. `0` disables timeout checks. |
+| `defaultTimeoutMs` | `30000` | Full active-request timeout, including subscriber callback execution. `0` disables timeout checks. |
 | `maxRetries` | `10` | Maximum defer retries before `onFailed()` receives `MaxRetriesReached`. |
 | `minDeferMs` | `10` | Minimum single defer delay. Shorter non-zero defer requests are clamped. |
 | `defaultDeferMs` | `1000` | Delay used when a subscriber calls `defer(0)`. |
 | `maxDeferMs` | `60000` | Maximum single defer delay. Longer defer requests are clamped. |
 | `allowWithoutSubscribers` | `true` | Allows `onReady()` when no modules subscribed. |
-| `maxSubscribers` | `16` | Fixed subscriber storage allocated during `init()`. |
+| `maxSubscribers` | `16` | Fixed subscriber and vote-snapshot capacity allocated during `init()`. |
 
 ## Memory behavior
 
-Accord allocates fixed subscriber slots during `init()` and does not grow them later. Callback storage uses `std::function`, so small lambdas may fit inline while larger captures may allocate.
+Accord allocates subscriber records and vote-snapshot keys during `init()` and does not allocate a new snapshot for each request or retry.
 
-If the subscriber capacity is reached, `onRequest()` returns an empty `AccordSubscription`. Use `subscribe()` to receive `SubscriberLimitReached` and a failure message.
+Callback storage uses `std::function`, so registering a callback with a larger capture may allocate. Subscriber callback objects are moved into their fixed slots when possible.
 
-## Defer bounds
+If capacity is reached, `onRequest()` returns an empty `AccordSubscription`. Use `subscribe()` to receive `SubscriberLimitReached` and a failure message.
 
-`minDeferMs`, `defaultDeferMs`, and `maxDeferMs` must be non-zero and ordered as `minDeferMs <= defaultDeferMs <= maxDeferMs`. Invalid bounds make `init()` fail with `InvalidConfig`.
+## Defer bounds and wraparound
+
+`minDeferMs`, `defaultDeferMs`, and `maxDeferMs` must be non-zero and ordered as:
+
+```txt
+minDeferMs <= defaultDeferMs <= maxDeferMs
+```
+
+Invalid bounds make `init()` fail with `InvalidConfig`.
+
+Deferred readiness uses unsigned elapsed time (`millis() - retryStartedAtMs`) rather than a signed absolute deadline, so normal `millis()` wraparound is handled correctly.
 
 ## Thread safety
 
-Public methods are guarded by a FreeRTOS recursive mutex. Subscriber callbacks and completion callbacks are invoked outside the mutex so callbacks can call Accord APIs without deadlocking.
+Public state is guarded by a FreeRTOS recursive mutex. A separate recursive callback gate serializes callback execution with cancel, unsubscribe, and deinit operations.
+
+Callbacks run without the state mutex held and may call Accord APIs reentrantly. See [`api.md`](api.md) for the precise external and self-call guarantees.
