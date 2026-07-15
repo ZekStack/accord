@@ -146,8 +146,13 @@ class AccordSubscription {
 	AccordSubscriptionId release();
 
   private:
+	friend class Accord;
+
+	AccordSubscription(Accord *accord, AccordSubscriptionId id, uint32_t generation);
+
 	Accord *_accord = nullptr;
 	AccordSubscriptionId _id = 0;
+	uint32_t _generation = 0;
 };
 
 struct AccordSubscriptionResult {
@@ -203,7 +208,10 @@ class Accord {
 	AccordResult unsubscribe(AccordSubscriptionId subscriptionId);
 
   private:
+	friend class AccordSubscription;
+
 	AccordResult processVotes();
+	AccordResult unsubscribe(AccordSubscriptionId subscriptionId, uint32_t generation);
 
 	std::unique_ptr<AccordImpl> _impl;
 };
