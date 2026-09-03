@@ -18,7 +18,7 @@ env:
 
 jobs:
   source-audit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zekstack-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,7 +38,7 @@ jobs:
           git diff --check "$(git hash-object -t tree /dev/null)" HEAD
 
   version-check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zekstack-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,7 +57,7 @@ jobs:
           python3 scripts/validate_version.py "${args[@]}"
 
   metadata-lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zekstack-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -72,7 +72,7 @@ jobs:
           project-type: library
 
   host-logic-tests:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zekstack-ci]
     needs: [source-audit, version-check]
     steps:
       - name: Checkout
@@ -89,7 +89,7 @@ jobs:
           /tmp/accord-host-tests
 
   build-examples:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zekstack-ci]
     needs: [source-audit, version-check, host-logic-tests]
     strategy:
       fail-fast: false
@@ -136,7 +136,7 @@ jobs:
           done
 
   arduino-cli:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zekstack-ci]
     needs: [source-audit, version-check, host-logic-tests]
     strategy:
       fail-fast: false
@@ -199,7 +199,7 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [source-audit, version-check, metadata-lint, host-logic-tests, build-examples, arduino-cli]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zekstack-ci]
     permissions:
       contents: write
     steps:
