@@ -11,6 +11,13 @@ struct StaticSemaphore_t {
 
 using SemaphoreHandle_t = StaticSemaphore_t *;
 
+inline SemaphoreHandle_t xSemaphoreCreateMutexStatic(StaticSemaphore_t *storage) {
+	if (storage == nullptr) {
+		return nullptr;
+	}
+	return std::construct_at(storage);
+}
+
 inline SemaphoreHandle_t xSemaphoreCreateRecursiveMutexStatic(StaticSemaphore_t *storage) {
 	if (storage == nullptr) {
 		return nullptr;
@@ -24,7 +31,7 @@ inline void vSemaphoreDelete(SemaphoreHandle_t handle) {
 	}
 }
 
-inline int xSemaphoreTakeRecursive(SemaphoreHandle_t handle, TickType_t) {
+inline int xSemaphoreTake(SemaphoreHandle_t handle, TickType_t) {
 	if (handle == nullptr) {
 		return pdFALSE;
 	}
@@ -32,8 +39,16 @@ inline int xSemaphoreTakeRecursive(SemaphoreHandle_t handle, TickType_t) {
 	return pdTRUE;
 }
 
-inline void xSemaphoreGiveRecursive(SemaphoreHandle_t handle) {
+inline void xSemaphoreGive(SemaphoreHandle_t handle) {
 	if (handle != nullptr) {
 		handle->mutex.unlock();
 	}
+}
+
+inline int xSemaphoreTakeRecursive(SemaphoreHandle_t handle, TickType_t) {
+	return xSemaphoreTake(handle, 0);
+}
+
+inline void xSemaphoreGiveRecursive(SemaphoreHandle_t handle) {
+	xSemaphoreGive(handle);
 }
