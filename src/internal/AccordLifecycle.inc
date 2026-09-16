@@ -1,4 +1,4 @@
-Accord::Accord() : _impl(new (std::nothrow) AccordImpl()) {
+Accord::Accord() : _impl(Strata::makeUnique<AccordImpl>(Strata::Placement::Internal)) {
 }
 
 Accord::~Accord() {
@@ -9,8 +9,9 @@ AccordResult Accord::init(const AccordConfig &config) {
 	if (!_impl) {
 		return AccordResult::failure(AccordError::OutOfMemory, "accord allocation failed");
 	}
-	if (config.maxSubscribers == 0 || config.maxSubscribers > UINT16_MAX ||
-	    config.minDeferMs == 0 || config.defaultDeferMs == 0 || config.maxDeferMs == 0 ||
+	if (!Strata::validMemoryPolicy(config.memory) || config.maxSubscribers == 0 ||
+	    config.maxSubscribers > UINT16_MAX || config.minDeferMs == 0 ||
+	    config.defaultDeferMs == 0 || config.maxDeferMs == 0 ||
 	    config.minDeferMs > config.defaultDeferMs || config.defaultDeferMs > config.maxDeferMs) {
 		return AccordResult::failure(AccordError::InvalidConfig, "accord config is invalid");
 	}
@@ -27,11 +28,13 @@ AccordResult Accord::init(const AccordConfig &config) {
 		return AccordResult::failure(AccordError::AlreadyInitialized, "accord is already initialized");
 	}
 
-	std::unique_ptr<AccordSubscriptionRecord[]> subscribers(
-	    new (std::nothrow) AccordSubscriptionRecord[config.maxSubscribers]
+	auto subscribers = AccordStorage<AccordSubscriptionRecord>::create(
+	    config.maxSubscribers,
+	    config.memory.allocation
 	);
-	std::unique_ptr<AccordSubscriptionKey[]> voteSnapshot(
-	    new (std::nothrow) AccordSubscriptionKey[config.maxSubscribers]
+	auto voteSnapshot = AccordStorage<AccordSubscriptionKey>::create(
+	    config.maxSubscribers,
+	    config.memory.allocation
 	);
 	if (!subscribers || !voteSnapshot) {
 		return AccordResult::failure(AccordError::OutOfMemory, "accord storage allocation failed");
