@@ -1,10 +1,10 @@
 #pragma once
 
 #include <Arduino.h>
+#include <Strata.h>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <memory>
 
 struct AccordImpl;
 struct AccordResult;
@@ -56,6 +56,10 @@ struct AccordConfig {
 	uint32_t maxDeferMs = 60000;
 	bool allowWithoutSubscribers = true;
 	size_t maxSubscribers = 16;
+	Strata::MemoryPolicy memory{
+	    .allocation = Strata::Placement::Default,
+	    .taskStack = Strata::Placement::Internal,
+	};
 };
 
 struct AccordResult {
@@ -213,5 +217,5 @@ class Accord {
 	AccordResult processVotes();
 	AccordResult unsubscribe(AccordSubscriptionId subscriptionId, uint32_t generation);
 
-	std::unique_ptr<AccordImpl> _impl;
+	Strata::UniquePtr<AccordImpl> _impl;
 };
