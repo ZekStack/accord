@@ -12,7 +12,19 @@ Each `AccordRequest` accepts only one decision. The first vote wins and later vo
 
 ## `force()` returns `RequestAlreadyActive`
 
-Force is strict in v0.1. It skips voting only when Accord is idle and does not interrupt active requests or terminal lifecycle callbacks. Cancel the active request first if that is the desired application behavior.
+Force is strict in v0.2. It skips voting only when Accord is idle and does not interrupt active requests or terminal lifecycle callbacks. Cancel the active request first if that is the desired application behavior.
+
+## `init()` reports `OutOfMemory` with `RequireExternal`
+
+Accord v0.2.0 allocates its fixed subscriber table and vote snapshot through Strata using `config.memory.allocation`.
+
+`Strata::Placement::RequireExternal` intentionally fails when external memory is unavailable or cannot satisfy the requested storage. Use `PreferExternal` when fallback is acceptable, or `Internal` when the tables must reside in internal memory.
+
+A failed storage allocation is transactional: Accord remains uninitialized and a later `init()` can retry with a different placement.
+
+## `init()` reports `InvalidConfig` after setting memory placement
+
+Accord validates the complete `Strata::MemoryPolicy`. Do not cast arbitrary values into `Strata::Placement`. `memory.taskStack` is currently unused by Accord, but it must still contain a valid Strata placement value.
 
 ## `getRequestInfo()` returns false
 
@@ -40,7 +52,7 @@ request.reject(message.c_str());
 
 ## Deferred request never retries
 
-Call `accord.loop()` regularly. Accord v0.1 does not create a task; deferred retry and timeout checks are driven by `loop()`.
+Call `accord.loop()` regularly. Accord does not create a task; deferred retry and timeout checks are driven by `loop()`.
 
 ## A long subscriber callback ended with `RequestTimeout`
 
