@@ -37,6 +37,25 @@ public:
 };
 ```
 
+## Configuration
+
+Accord v0.2.0 uses the shared Strata memory policy:
+
+```cpp
+struct AccordConfig {
+	uint32_t defaultTimeoutMs;
+	uint8_t maxRetries;
+	uint32_t minDeferMs;
+	uint32_t defaultDeferMs;
+	uint32_t maxDeferMs;
+	bool allowWithoutSubscribers;
+	size_t maxSubscribers;
+	Strata::MemoryPolicy memory;
+};
+```
+
+`memory.allocation` controls the fixed subscriber table and vote snapshot created by `init()`. `memory.taskStack` is currently unused because Accord owns no tasks, but the complete policy must contain valid Strata placement values. See [`configuration.md`](configuration.md).
+
 ## Result
 
 ```cpp
@@ -147,16 +166,16 @@ Prefer string literals, static storage, or application-owned buffers with a suff
 | `RequestTimeout` | The request exceeded `defaultTimeoutMs`, including time spent in subscriber callbacks. |
 | `MaxRetriesReached` | A deferred request exceeded `maxRetries`. |
 | `MissingVote` | A still-active subscriber returned without voting. |
-| `InvalidConfig` | Config values are invalid. |
+| `InvalidConfig` | Config values, including the Strata memory policy, are invalid. |
 | `InvalidArgument` | A required argument was invalid. |
-| `OutOfMemory` | Initialization storage allocation failed. |
+| `OutOfMemory` | Accord implementation or configured fixed storage could not be allocated. |
 | `Cancelled` | Request was cancelled or became stale. |
 | `SubscriptionNotFound` | Unsubscribe target was not found or belonged to an earlier initialization. |
 | `InternalError` | Internal synchronization failure. |
 
 ## Callback and concurrency contract
 
-Accord uses two recursive FreeRTOS mutexes per instance:
+Accord uses two Strata-owned recursive FreeRTOS mutexes per instance:
 
 * a state mutex protects request, subscriber, and diagnostic state;
 * a callback gate serializes user callback admission and teardown.
@@ -194,6 +213,6 @@ A callback that returns after the deadline cannot contribute a vote. The request
 
 ## Host logic tests
 
-The host tests compile Accord with Arduino and FreeRTOS stubs backed by real C++ recursive mutexes. They cover state-machine behavior, threaded deinit/unsubscribe synchronization, stale handles, callback-time timeout, lifecycle ordering, and millis wraparound.
+The host tests compile Accord against Strata's generic allocation backend with Arduino and FreeRTOS stubs backed by real C++ recursive mutexes. They cover state-machine behavior, threaded deinit/unsubscribe synchronization, stale handles, callback-time timeout, lifecycle ordering, millis wraparound, memory-policy validation, reinitialization with different placements, and transactional fixed-storage allocation failure.
 
 ESP32 builds in CI remain the source of truth for platform compilation and FreeRTOS integration.
