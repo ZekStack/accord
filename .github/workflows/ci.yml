@@ -108,6 +108,17 @@ jobs:
             -o /tmp/accord-host-tests
           /tmp/accord-host-tests
 
+          g++ -std=c++20 -Wall -Wextra -pedantic -pthread \
+            -Itests/host/stubs \
+            -Isrc \
+            -I/tmp/accord-strata/src \
+            src/Accord.cpp \
+            tests/host/test_memory.cpp \
+            /tmp/accord-strata/src/strata/Allocation.cpp \
+            /tmp/accord-strata/src/strata/internal/PlatformGeneric.cpp \
+            -o /tmp/accord-memory-tests
+          /tmp/accord-memory-tests
+
   build-examples:
     runs-on: [self-hosted, zekstack-ci]
     needs: [source-audit, version-check, host-logic-tests]
