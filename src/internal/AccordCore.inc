@@ -113,6 +113,88 @@ struct AccordSubscriptionKey {
 	uint32_t generation = 0;
 };
 
+template <typename T>
+class AccordStorage {
+	static_assert(std::is_nothrow_default_constructible_v<T>);
+	static_assert(std::is_nothrow_destructible_v<T>);
+
+  public:
+	AccordStorage() noexcept = default;
+
+	~AccordStorage() noexcept {
+		reset();
+	}
+
+	AccordStorage(const AccordStorage &) = delete;
+	AccordStorage &operator=(const AccordStorage &) = delete;
+
+	AccordStorage(AccordStorage &&other) noexcept {
+		moveFrom(other);
+	}
+
+	AccordStorage &operator=(AccordStorage &&other) noexcept {
+		if (this != &other) {
+			reset();
+			moveFrom(other);
+		}
+		return *this;
+	}
+
+	[[nodiscard]] static AccordStorage create(
+	    size_t count,
+	    Strata::Placement placement
+	) noexcept {
+		AccordStorage storage;
+		T *items = Strata::allocateArray<T>(count, placement);
+		if (items == nullptr) {
+			return storage;
+		}
+		for (size_t i = 0; i < count; ++i) {
+			std::construct_at(items + i);
+		}
+		storage._items = items;
+		storage._size = count;
+		return storage;
+	}
+
+	void reset() noexcept {
+		if (_items == nullptr) {
+			return;
+		}
+		for (size_t i = _size; i > 0; --i) {
+			std::destroy_at(_items + (i - 1));
+		}
+		Strata::free(_items);
+		_items = nullptr;
+		_size = 0;
+	}
+
+	T &operator[](size_t index) noexcept {
+		return _items[index];
+	}
+
+	const T &operator[](size_t index) const noexcept {
+		return _items[index];
+	}
+
+	[[nodiscard]] size_t size() const noexcept {
+		return _size;
+	}
+
+	[[nodiscard]] explicit operator bool() const noexcept {
+		return _items != nullptr;
+	}
+
+  private:
+	void moveFrom(AccordStorage &other) noexcept {
+		_items = std::exchange(other._items, nullptr);
+		_size = std::exchange(other._size, 0);
+	}
+
+	T *_items = nullptr;
+	size_t _size = 0;
+};
+
 enum class AccordFinishKind : uint8_t {
 	None,
 	Ready,
@@ -131,11 +213,15 @@ struct AccordFinishEvent {
 };
 
 struct AccordImpl {
+	AccordImpl() noexcept
+	    : mutex(AccordMutex::create()), callbackGate(AccordMutex::create()) {
+	}
+
 	AccordConfig config{};
 	AccordMutex mutex;
 	AccordMutex callbackGate;
-	std::unique_ptr<AccordSubscriptionRecord[]> subscribers;
-	std::unique_ptr<AccordSubscriptionKey[]> voteSnapshot;
+	AccordStorage<AccordSubscriptionRecord> subscribers;
+	AccordStorage<AccordSubscriptionKey> voteSnapshot;
 	size_t subscriberCapacity = 0;
 	size_t activeSubscriberCount = 0;
 	AccordCallbackSlot<AccordReadyCallback> readyCallback;
