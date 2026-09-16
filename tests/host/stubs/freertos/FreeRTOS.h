@@ -1,6 +1,10 @@
 #pragma once
 
-#include <thread>
+#include <sched.h>
+
+#define configSUPPORT_STATIC_ALLOCATION 1
+#define configUSE_MUTEXES 1
+#define configUSE_RECURSIVE_MUTEXES 1
 
 using TickType_t = unsigned int;
 
@@ -9,5 +13,5 @@ constexpr int pdTRUE = 1;
 constexpr int pdFALSE = 0;
 
 inline void taskYIELD() {
-	std::this_thread::yield();
+	sched_yield();
 }

@@ -13,11 +13,14 @@ Accord helps you safely coordinate `ESP.restart()` in Arduino ESP32 projects. It
 * **Coordinated reboot** - modules vote before user code calls `ESP.restart()`.
 * **Small API** - request, allow, reject, defer, cancel, and strict force flows.
 * **ESP32-friendly** - fixed subscriber and vote-snapshot storage after `init()`.
-* **Thread-safe internals** - state is guarded by a FreeRTOS recursive mutex.
+* **Strata-backed ownership** - explicit heap and FreeRTOS synchronization ownership routes through Strata.
+* **Thread-safe internals** - state and callback admission are guarded by Strata-owned FreeRTOS recursive mutexes.
 * **Callback-safe teardown** - external cancel, unsubscribe, and deinit operations prevent later callback admission and synchronize with in-flight callbacks.
 * **Production-minded** - result-based errors, retry limits, timeout handling, and explicit callback rules.
 
 ## Install
+
+Accord v0.2.0 depends on Strata v0.1.2.
 
 ### PlatformIO
 
@@ -29,6 +32,7 @@ framework = arduino
 
 lib_deps =
   https://github.com/ZekStack/accord.git
+  https://github.com/ZekStack/strata.git#v0.1.2
 
 build_flags =
   -std=gnu++20
@@ -40,11 +44,14 @@ build_unflags =
 
 Accord is not published to Arduino Library Manager yet.
 
-Install it by downloading the repository ZIP or cloning it into your Arduino libraries folder.
+Install Accord and Strata by downloading their repository ZIPs or cloning them into your Arduino libraries folder.
 
 ```txt
 Arduino/libraries/Accord
+Arduino/libraries/Strata
 ```
+
+Use Strata `v0.1.2` with Accord `v0.2.0`.
 
 ## Quick start
 
@@ -99,7 +106,9 @@ void loop() {
 * Subscription handles unsubscribe only when `unsubscribe()` is called explicitly.
 * Assigning over a live subscription handle releases that handle without unsubscribing the old subscriber.
 * Handles created before `deinit()` are generation-bound and cannot remove subscribers created after reinitialization.
-* Callback storage uses `std::function`; registering callbacks with larger captures may allocate.
+* The implementation object, fixed subscriber table, vote snapshot, and recursive-mutex control storage are owned through Strata.
+* `AccordConfig::memory.allocation` controls the subscriber table and vote-snapshot placement. `memory.taskStack` is currently unused because Accord creates no tasks.
+* Callback storage uses `std::function`; registering callbacks with larger captures may allocate through the C++ standard library.
 * Labels and reject messages are borrowed `const char*` pointers. Their storage must remain valid until the next request completes, Accord is reinitialized, or Accord is destroyed.
 
 ## Cross-task behavior
@@ -142,10 +151,11 @@ Detailed documentation is available in the `docs/` folder.
 | Document | Description |
 | --- | --- |
 | [`docs/getting-started.md`](docs/getting-started.md) | Step-by-step setup and first request flow. |
-| [`docs/configuration.md`](docs/configuration.md) | Configuration options and defaults. |
+| [`docs/configuration.md`](docs/configuration.md) | Configuration options, memory placement, and defaults. |
 | [`docs/api.md`](docs/api.md) | Public classes, methods, callbacks, states, and errors. |
 | [`docs/examples.md`](docs/examples.md) | Explanation of all included examples. |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common behavior notes and fixes. |
+| [`docs/migration-v0.2.0.md`](docs/migration-v0.2.0.md) | Migration notes for the Strata-backed v0.2.0 release. |
 
 ## API overview
 
@@ -172,10 +182,10 @@ For the full API, see [`docs/api.md`](docs/api.md).
 | Platform | `espressif32` |
 | Language | C++20 |
 | Filesystem | none |
-| PSRAM | not used |
-| Dependencies | none |
+| PSRAM | Optional through Strata allocation placement |
+| Dependencies | Strata `v0.1.2` |
 | Exceptions | Not used by Accord |
-| Status | Early-stage `0.1.0` |
+| Status | Early-stage `0.2.0` |
 
 ## Configuration
 
@@ -188,6 +198,7 @@ config.defaultDeferMs = 1000;
 config.maxDeferMs = 60000;
 config.allowWithoutSubscribers = true;
 config.maxSubscribers = 16;
+config.memory.allocation = Strata::Placement::Default;
 
 AccordResult result = accord.init(config);
 ```

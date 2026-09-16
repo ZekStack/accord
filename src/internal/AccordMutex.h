@@ -1,37 +1,8 @@
 #pragma once
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
+#include <strata/freertos/Mutex.h>
 
-class AccordMutex {
-  public:
-	AccordMutex() {
-		_handle = xSemaphoreCreateRecursiveMutex();
-	}
-
-	~AccordMutex() {
-		if (_handle != nullptr) {
-			vSemaphoreDelete(_handle);
-			_handle = nullptr;
-		}
-	}
-
-	AccordMutex(const AccordMutex &) = delete;
-	AccordMutex &operator=(const AccordMutex &) = delete;
-
-	bool lock(TickType_t timeout = portMAX_DELAY) {
-		return _handle != nullptr && xSemaphoreTakeRecursive(_handle, timeout) == pdTRUE;
-	}
-
-	void unlock() {
-		if (_handle != nullptr) {
-			xSemaphoreGiveRecursive(_handle);
-		}
-	}
-
-  private:
-	SemaphoreHandle_t _handle = nullptr;
-};
+using AccordMutex = Strata::FreeRTOS::RecursiveMutex;
 
 class AccordLock {
   public:

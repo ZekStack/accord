@@ -2,6 +2,8 @@
 
 Accord coordinates reboot requests. It does not reboot the ESP32 by itself.
 
+Accord v0.2.0 requires Strata v0.1.2. Install both libraries before compiling an Accord sketch.
+
 ## Basic setup
 
 ```cpp
@@ -36,6 +38,16 @@ void loop() {
 	delay(10);
 }
 ```
+
+The default configuration uses `Strata::Placement::Default` for Accord's fixed subscriber and vote-snapshot storage. To select a placement explicitly:
+
+```cpp
+AccordConfig config;
+config.memory.allocation = Strata::Placement::PreferExternal;
+AccordResult result = accord.init(config);
+```
+
+See [`configuration.md`](configuration.md) for the complete placement behavior.
 
 ## Request flow
 

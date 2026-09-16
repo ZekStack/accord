@@ -3,7 +3,8 @@
 #include "internal/AccordMutex.h"
 
 #include <algorithm>
-#include <new>
+#include <memory>
+#include <type_traits>
 #include <utility>
 
 #include "internal/AccordCore.inc"
