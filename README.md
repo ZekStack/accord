@@ -1,5 +1,7 @@
 # Accord
 
+> Current version: **v0.3.0**. Strata dependency is pinned to **v0.1.4**.
+
 Accord is a reboot coordination library for ESP32.
 
 Accord helps you safely coordinate `ESP.restart()` in Arduino ESP32 projects. It is designed for applications where modules may need to finish flash writes, OTA work, hardware operations, sync jobs, or user actions before rebooting.
@@ -20,7 +22,7 @@ Accord helps you safely coordinate `ESP.restart()` in Arduino ESP32 projects. It
 
 ## Install
 
-Accord v0.2.0 depends on Strata v0.1.2.
+Accord v0.3.0 depends on Strata v0.1.4.
 
 ### PlatformIO
 
@@ -32,7 +34,7 @@ framework = arduino
 
 lib_deps =
   https://github.com/ZekStack/accord.git
-  https://github.com/ZekStack/strata.git#v0.1.2
+  https://github.com/ZekStack/strata.git#v0.1.4
 
 build_flags =
   -std=gnu++20
@@ -51,7 +53,7 @@ Arduino/libraries/Accord
 Arduino/libraries/Strata
 ```
 
-Use Strata `v0.1.2` with Accord `v0.2.0`.
+Use Strata `v0.1.4` with Accord `v0.2.0`.
 
 ## Quick start
 
@@ -183,9 +185,9 @@ For the full API, see [`docs/api.md`](docs/api.md).
 | Language | C++20 |
 | Filesystem | none |
 | PSRAM | Optional through Strata allocation placement |
-| Dependencies | Strata `v0.1.2` |
+| Dependencies | Strata `v0.1.4` |
 | Exceptions | Not used by Accord |
-| Status | Early-stage `0.2.0` |
+| Status | Early-stage `0.3.0` |
 
 ## Configuration
 

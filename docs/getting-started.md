@@ -2,7 +2,7 @@
 
 Accord coordinates reboot requests. It does not reboot the ESP32 by itself.
 
-Accord v0.2.0 requires Strata v0.1.2. Install both libraries before compiling an Accord sketch.
+Accord v0.2.0 requires Strata v0.1.4. Install both libraries before compiling an Accord sketch.
 
 ## Basic setup
 
